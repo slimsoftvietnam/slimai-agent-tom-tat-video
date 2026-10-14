@@ -18,7 +18,7 @@ Dùng skill tom-tat-video để tóm tắt video này thành file Word và PDF: 
 |---|---|
 | [`tom-tat-video/SKILL.md`](tom-tat-video/SKILL.md) | Skill cho Claude Code / Codex: các bước agent làm, mẫu nội dung, cách viết cho đầy đủ |
 | [`tom-tat-video/INSTALL.md`](tom-tat-video/INSTALL.md) | Cài đặt: nơi đặt skill, ffmpeg, yt-dlp, môi trường Python |
-| [`tom-tat-video/THE_NHIEM_VU.md`](tom-tat-video/THE_NHIEM_VU.md) | Thẻ nhiệm vụ: tình huống, kết quả cần đạt, PEAS, không được làm gì, nghiệm thu |
+| [`tom-tat-video/THE_NHIEM_VU.md`](tom-tat-video/THE_NHIEM_VU.md) | Thẻ nhiệm vụ chi tiết cho agent: tiêu chí đạt, không được làm gì, nghiệm thu |
 | `tom-tat-video/scripts/` | `lay_video.py` (video + lời thoại có mốc), `anh_nho.py` (bảng ảnh nhỏ để chọn hình), `dung_tai_lieu.py` (dựng Word/PDF + tự chấm) |
 
 ## Skill tạo ra những gì
@@ -33,16 +33,30 @@ Mỗi video có một thư mục `output/<tên-video>/`:
 | `hinh/` | Các hình minh hoạ |
 | `loi_thoai.txt`, `noi_dung.json`, `anh_nho/` | File làm việc để sửa và dựng lại |
 
-## PEAS trong một bảng
+## Thẻ nhiệm vụ
 
-| Chữ | Dịch | Nhớ nhanh | Agent này |
-|---|---|---|---|
-| **P** · Performance measure | Thước đo hiệu quả | KPI | Một file Docs tổng hợp nội dung khoá học, bảng tự chấm đạt đủ |
-| **E** · Environment | Môi trường | Bàn làm việc | Một thư mục làm việc trên máy tính |
-| **A** · Actuators | Cơ cấu chấp hành | Đôi tay | Tải video và phụ đề, chụp ảnh, viết nội dung, dựng Word/PDF. **Không** bịa nội dung, không xoá file, không gửi tài liệu đi đâu |
-| **S** · Sensors | Cảm biến | Đôi mắt | Video khoá học: file trên máy, link YouTube hoặc link video khác |
+**Bài về nhà · Tóm tắt video khoá học — Agent xem video và viết lại thành tài liệu học tập**
 
-## Lưu ý
+### Tình huống thực tế
+
+Mỗi tuần bạn xem vài buổi đào tạo, webinar, livestream. Xem xong là quên; muốn ghi chép lại một video một tiếng thì mất cả buổi chiều, và thường bỏ dở giữa chừng.
+
+Agent lấy phụ đề có mốc thời gian, "nhìn" video qua bảng ảnh nhỏ để chọn đúng slide, viết lại theo chương mục, rồi dựng Word và PDF và tự chấm theo 6 tiêu chí. **Tài liệu chỉ dùng để học; video của người khác phải ghi nguồn.**
+
+### Mô hình PEAS
+
+| | | |
+|---|---|---|
+| **P** | Kết quả cần có | Một **file Docs tổng hợp nội dung khoá học**. |
+| **E** | Môi trường làm việc | Một **thư mục làm việc trên máy tính**, link YouTube hoặc file video trên máy. |
+| **A** | Hành động | Tải video và phụ đề, chụp ảnh nhỏ, viết nội dung, dựng Word và PDF, tự chấm và sửa.<br>**Không được:** bịa nội dung, tự phiên âm khi video đã có phụ đề, cài phần mềm hệ thống khi chưa hỏi, dùng hình có mã QR hay quảng cáo của bên khác, xoá file hoặc gửi tài liệu đi đâu. |
+| **S** | Đầu vào | **Video khoá học**: file trên máy, link YouTube hoặc link video khác. |
+
+> **Lưu ý:** Phụ đề tự động có thể nghe nhầm tên riêng. Agent chỉ sửa khi chắc chắn; khi đọc tài liệu, đối chiếu lại những chỗ quan trọng với video.
+
+Hướng dẫn từng bước có hình minh hoạ: [ai.slim.vn/huong-dan-ai-agent-tom-tat-video-khoa-hoc](https://ai.slim.vn/huong-dan-ai-agent-tom-tat-video-khoa-hoc)
+
+## Lưu ý khác
 
 - Không cần API key: phần viết nội dung do chính Claude Code / Codex làm. Video có phụ đề YouTube chạy nhanh nhất; video không có phụ đề cần công cụ phiên âm trên máy (xem INSTALL.md).
 - Tài liệu tạo từ video của người khác chỉ dùng để học. Skill tự ghi nguồn trên bìa; không phát hành khi chưa xin phép tác giả.
