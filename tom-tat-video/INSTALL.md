@@ -33,15 +33,20 @@ py -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## 4. (Tuỳ chọn) PDF và phiên âm
+## 4. Bìa và sơ đồ: Google Chrome hoặc Microsoft Edge
+
+Script dùng Chrome/Edge chạy ngầm để vẽ bìa và sơ đồ minh hoạ. Máy đã có một trong hai trình duyệt là đủ (Windows có sẵn Edge). Không có thì tài liệu vẫn dựng được nhưng bìa chỉ có chữ và không có sơ đồ.
+
+## 5. (Tuỳ chọn) PDF và phiên âm
 
 - PDF: macOS có Pages là đủ (script tự xuất PDF qua Pages). Máy khác: cài LibreOffice, hoặc mở file Word rồi Xuất PDF.
 - Video không có phụ đề: cần `whisper-cli` (macOS: `brew install whisper-cpp`) và model đa ngôn ngữ `ggml-large-v3.bin` hoặc `ggml-medium.bin` (không dùng bản `.en`). Hầu hết video YouTube tiếng Việt đã có phụ đề tự động nên thường không cần.
 
-## 5. Kiểm tra nhanh
+## 6. Kiểm tra nhanh
 
 ```sh
 .venv/bin/python scripts/lay_video.py "https://www.youtube.com/watch?v=<id>" --thu-muc output/thu
+.venv/bin/python scripts/ve_minh_hoa.py thu output/so-do-mau
 ```
 
-Thấy dòng `Lời thoại: … — nguồn: phụ đề YouTube` là đã sẵn sàng.
+Thấy dòng `Lời thoại: … — nguồn: phụ đề YouTube` và 5 dòng `True` (5 sơ đồ mẫu trong `output/so-do-mau`) là đã sẵn sàng.

@@ -1,14 +1,16 @@
-"""Bước 4: dựng tài liệu Word (+ PDF nếu máy có Pages hoặc LibreOffice) từ noi_dung.json, rồi tự chấm.
+"""Bước 5: dựng tài liệu Word (+ PDF nếu máy có Pages hoặc LibreOffice) từ noi_dung.json, rồi tự chấm.
 
 Cách dùng:
   python dung_tai_lieu.py <thư-mục-kết-quả> [--nguoi-soan "Tên bạn"] [--khong-pdf]
 
 Đọc: noi_dung.json (agent viết), loi_thoai.txt, thong_tin.json, video.mp4
-Tạo: <tên>.docx, <tên>.pdf (nếu được), hinh/*.jpg, tu_cham.txt
+Tạo: <tên>.docx, <tên>.pdf (nếu được), hinh/*.jpg|png (ảnh chụp + sơ đồ + bìa), tu_cham.txt
+Phong cách "Ghi chú khoá học": bìa nền tối nhấn cam, chữ thân có chân, tiêu đề chương cam, hộp nền kem.
 """
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import json
 import platform
@@ -19,19 +21,27 @@ import sys
 from pathlib import Path
 
 from docx import Document
+from docx.enum.section import WD_SECTION
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
-from docx.shared import Inches, Pt, RGBColor
+from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import nsdecls, qn
+from docx.shared import Emu, Inches, Pt, RGBColor
 
-NAVY = RGBColor(0x0B, 0x2A, 0x5B)
-ACCENT = RGBColor(0x12, 0x7F, 0xB5)
-MUTED = RGBColor(0x5B, 0x64, 0x75)
-FONT = "Arial"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ve_minh_hoa  # noqa: E402
+
+ORANGE = RGBColor(0xE8, 0x69, 0x2C)
+INK = RGBColor(0x22, 0x20, 0x1E)
+BODY = RGBColor(0x2E, 0x2B, 0x28)
+MUTED = RGBColor(0x7A, 0x74, 0x6B)
+CREAM = "F7F1E6"
+SANS = "Arial"
+SERIF = "Georgia"
+PAGE_W, PAGE_H = Inches(8.27), Inches(11.69)  # A4
 
 
-def secs(ts: str) -> int | None:
+def secs(ts) -> int | None:
     if not isinstance(ts, str) or not re.fullmatch(r"(\d{1,2}:)?\d{1,2}:\d{2}", ts.strip()):
         return None
     p = [int(x) for x in ts.strip().split(":")]
@@ -51,30 +61,35 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")[:60] or "tai-lieu"
 
 
-def run(par, text, size=None, bold=False, italic=False, color=None):
+# ---------- định dạng ----------
+
+def run(par, text, size=11, bold=False, italic=False, color=BODY, font=SERIF, spacing=None):
     r = par.add_run(text)
-    r.font.name = FONT
-    r._element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
-    if size:
-        r.font.size = Pt(size)
+    r.font.name = font
+    r._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), font)
+    r.font.size = Pt(size)
     r.bold, r.italic = bold, italic
-    if color is not None:
-        r.font.color.rgb = color
+    r.font.color.rgb = color
+    if spacing:
+        sp = OxmlElement("w:spacing")
+        sp.set(qn("w:val"), str(spacing))
+        r._element.get_or_add_rPr().append(sp)
     return r
 
 
-def link(par, url, text, size=9):
+def link(par, url, text, size=8.5):
     rid = par.part.relate_to(url, RT.HYPERLINK, is_external=True)
     h = OxmlElement("w:hyperlink")
     h.set(qn("r:id"), rid)
     r = OxmlElement("w:r")
     rpr = OxmlElement("w:rPr")
-    for tag, val in (("w:rFonts", None), ("w:color", "127FB5"), ("w:sz", str(size * 2)), ("w:u", "single")):
+    fonts = OxmlElement("w:rFonts")
+    fonts.set(qn("w:ascii"), SANS)
+    fonts.set(qn("w:hAnsi"), SANS)
+    rpr.append(fonts)
+    for tag, val in (("w:b", None), ("w:color", "E8692C"), ("w:sz", str(int(size * 2)))):
         el = OxmlElement(tag)
-        if tag == "w:rFonts":
-            el.set(qn("w:ascii"), FONT)
-            el.set(qn("w:hAnsi"), FONT)
-        else:
+        if val:
             el.set(qn("w:val"), val)
         rpr.append(el)
     r.append(rpr)
@@ -85,29 +100,39 @@ def link(par, url, text, size=9):
     par._p.append(h)
 
 
-def shade(par, fill="EEF5FB"):
-    ppr = par._p.get_or_add_pPr()
+def shade(par, fill=CREAM):
     shd = OxmlElement("w:shd")
-    shd.set(qn("w:val"), "clear")
-    shd.set(qn("w:color"), "auto")
-    shd.set(qn("w:fill"), fill)
-    ppr.append(shd)
+    for k, v in (("val", "clear"), ("color", "auto"), ("fill", fill)):
+        shd.set(qn(f"w:{k}"), v)
+    par._p.get_or_add_pPr().append(shd)
 
 
-def rule(par, color="127FB5", size="12"):
+def border(par, side="bottom", color="E8692C", size="8", space="4"):
     ppr = par._p.get_or_add_pPr()
-    bdr = OxmlElement("w:pBdr")
-    b = OxmlElement("w:bottom")
-    for k, v in (("val", "single"), ("sz", size), ("space", "4"), ("color", color)):
+    bdr = ppr.find(qn("w:pBdr"))
+    if bdr is None:
+        bdr = OxmlElement("w:pBdr")
+        ppr.append(bdr)
+    b = OxmlElement(f"w:{side}")
+    for k, v in (("val", "single"), ("sz", size), ("space", space), ("color", color)):
         b.set(qn(f"w:{k}"), v)
     bdr.append(b)
-    ppr.append(bdr)
 
 
-def field(par, code):
+def field(par, code, size=8):
     f = OxmlElement("w:fldSimple")
     f.set(qn("w:instr"), code)
     r = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    for tag, val in (("w:rFonts", None), ("w:b", None), ("w:color", "E8692C"), ("w:sz", str(size * 2))):
+        el = OxmlElement(tag)
+        if tag == "w:rFonts":
+            el.set(qn("w:ascii"), SANS)
+            el.set(qn("w:hAnsi"), SANS)
+        elif val:
+            el.set(qn("w:val"), val)
+        rpr.append(el)
+    r.append(rpr)
     t = OxmlElement("w:t")
     t.text = "1"
     r.append(t)
@@ -115,36 +140,83 @@ def field(par, code):
     par._p.append(f)
 
 
-def heading(doc, text, level):
-    p = doc.add_heading(level=level)
-    run(p, text, size={1: 18, 2: 13.5, 3: 12}[level], bold=True, color=NAVY)
-    p.paragraph_format.space_before = Pt(16 if level == 1 else 12)
-    p.paragraph_format.space_after = Pt(6)
-    p.paragraph_format.keep_with_next = True
-    if level == 1:
-        rule(p)
-    return p
-
-
-def body(doc, text, italic=False, color=None):
+def para(doc, text="", size=11, italic=False, color=BODY, after=7, align=None, font=SERIF, bold=False):
     p = doc.add_paragraph()
-    run(p, text, size=11, italic=italic, color=color)
-    p.paragraph_format.space_after = Pt(7)
-    p.paragraph_format.line_spacing = 1.3
+    if text:
+        run(p, text, size=size, italic=italic, color=color, font=font, bold=bold)
+    pf = p.paragraph_format
+    pf.space_after = Pt(after)
+    pf.line_spacing = 1.38
+    if align is not None:
+        p.alignment = align
     return p
 
 
-def bullets(doc, items, style="List Bullet"):
-    for it in items:
-        p = doc.add_paragraph(style=style)
-        run(p, it, size=11)
-        p.paragraph_format.space_after = Pt(3)
+def heading(doc, text, level, moc=None, page_break=False):
+    p = doc.add_heading(level=level)
+    if level == 1:
+        run(p, text, size=19, bold=True, color=ORANGE, font=SANS)
+        border(p, color="E6DCCB", size="6", space="6")
+    else:
+        run(p, text, size=13, bold=True, color=INK, font=SANS)
+    if moc:
+        run(p, f"  ·  {moc}", size=10 if level > 1 else 12, bold=True, color=MUTED, font=SANS)
+    pf = p.paragraph_format
+    pf.space_before = Pt(18 if level == 1 else 13)
+    pf.space_after = Pt(7)
+    pf.keep_with_next = True
+    pf.page_break_before = page_break
+    return p
 
+
+def caption(doc, label, moc, title, desc):
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run(p, label, size=8, bold=True, color=ORANGE, font=SANS, spacing=30)
+    if moc:
+        run(p, f"  ·  {moc}", size=8, bold=True, color=ORANGE, font=SANS)
+    if title:
+        run(p, f"  —  {title}", size=8.5, bold=True, color=INK, font=SANS)
+    p.paragraph_format.space_after = Pt(0)
+    if desc:
+        q = para(doc, desc, size=9.5, italic=True, color=MUTED, after=12, align=WD_ALIGN_PARAGRAPH.CENTER)
+        q.paragraph_format.line_spacing = 1.2
+    else:
+        p.paragraph_format.space_after = Pt(12)
+
+
+def picture(doc, path: Path, width_in=6.0):
+    doc.add_picture(str(path), width=Inches(width_in))
+    p = doc.paragraphs[-1]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(4)
+    p.paragraph_format.keep_with_next = True
+
+
+def full_page_image(doc, path: Path):
+    """Ảnh phủ kín trang đầu (neo theo trang, nằm sau chữ) — cách duy nhất Pages hiển thị đúng bìa tràn lề."""
+    p = doc.paragraphs[0] if doc.paragraphs else doc.add_paragraph()
+    r = p.add_run()
+    r.add_picture(str(path), width=Emu(PAGE_W), height=Emu(PAGE_H))
+    inline = r._element.find(".//" + qn("wp:inline"))
+    graphic = copy.deepcopy(inline.find(qn("a:graphic")))
+    anchor = parse_xml(
+        f'<wp:anchor {nsdecls("wp", "a", "pic", "r")} distT="0" distB="0" distL="0" distR="0" simplePos="0" '
+        f'relativeHeight="0" behindDoc="1" locked="1" layoutInCell="1" allowOverlap="1">'
+        f'<wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionH>'
+        f'<wp:positionV relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionV>'
+        f'<wp:extent cx="{int(PAGE_W)}" cy="{int(PAGE_H)}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/>'
+        f'<wp:docPr id="9001" name="Bia"/><wp:cNvGraphicFramePr/></wp:anchor>')
+    anchor.append(graphic)
+    inline.getparent().replace(inline, anchor)
+    r.add_break(WD_BREAK.PAGE)
+
+
+# ---------- dữ liệu ----------
 
 def video_link(base: str, s: int) -> str | None:
-    if not base:
-        return None
-    return f"{base}{'&' if '?' in base else '?'}t={s}s"
+    return f"{base}{'&' if '?' in base else '?'}t={s}s" if base else None
 
 
 def grab(video: Path, s: int, dest: Path) -> bool:
@@ -155,6 +227,7 @@ def grab(video: Path, s: int, dest: Path) -> bool:
 
 def to_pdf(docx: Path) -> Path | None:
     pdf = docx.with_suffix(".pdf")
+    pdf.unlink(missing_ok=True)
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
     if soffice:
         subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir", str(docx.parent), str(docx)],
@@ -179,98 +252,120 @@ def main() -> None:
     valid = {secs(t) for t in re.findall(r"^\[((?:\d{2}:)?\d{2}:\d{2})\]", transcript, re.M)}
     duration = info.get("thoi_luong_giay") or max(valid or {0})
     base = info.get("link", "")
+    video = out / "video.mp4"
+    title = nd.get("tieu_de") or info.get("tieu_de", "Tài liệu từ video")
+    nd.setdefault("nam", str(dt.date.today().year))
+    chapters = nd.get("chuong", [])
+    questions = nd.get("cau_hoi", [])
+    terms = nd.get("thuat_ngu", [])
     warnings: list[str] = []
+    has_browser = ve_minh_hoa.find_browser() is not None
+    if not has_browser:
+        warnings.append("Không tìm thấy Chrome/Edge: không vẽ được bìa và sơ đồ (cài Google Chrome rồi chạy lại)")
+
+    img_dir = out / "hinh"
+    img_dir.mkdir(exist_ok=True)
+    for old in list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")):
+        old.unlink()
+
+    # Đếm trước số hình để in lên bìa
+    planned = sum(len(m.get("hinh", [])) + len(m.get("minh_hoa", [])) for c in chapters for m in c.get("muc", []))
 
     doc = Document()
     sec = doc.sections[0]
-    sec.left_margin = sec.right_margin = Inches(1)
-    sec.top_margin = sec.bottom_margin = Inches(0.9)
-    title = nd.get("tieu_de") or info.get("tieu_de", "Tài liệu từ video")
+    sec.page_width, sec.page_height = PAGE_W, PAGE_H
+    sec.left_margin = sec.right_margin = Inches(0.95)
+    sec.top_margin, sec.bottom_margin = Inches(0.95), Inches(0.85)
+    sec.different_first_page_header_footer = True
 
     # Bìa
-    for _ in range(5):
-        doc.add_paragraph()
-    p = doc.add_paragraph()
-    run(p, "TÀI LIỆU HỌC TẬP TỪ VIDEO", size=10, bold=True, color=ACCENT)
-    p = doc.add_paragraph()
-    run(p, title, size=28, bold=True, color=NAVY)
-    p.paragraph_format.space_after = Pt(10)
-    if nd.get("phu_de"):
-        p = doc.add_paragraph()
-        run(p, nd["phu_de"], size=13, color=MUTED)
-    rule(doc.add_paragraph(), size="18")
-    meta = [f"Nguồn: {info.get('tieu_de', '')}" + (f" — {info['kenh']}" if info.get("kenh") else ""),
-            f"Thời lượng video: {stamp(duration)}"]
-    meta.append(f"Biên soạn bằng AI Agent{' · ' + a.nguoi_soan if a.nguoi_soan else ''} · {dt.date.today():%d/%m/%Y}")
-    for line in meta:
-        p = doc.add_paragraph()
-        run(p, line, size=10.5, color=MUTED)
-    if base:
-        p = doc.add_paragraph()
-        link(p, base, base, size=10)
-    doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+    cover_shot = None
+    cm = secs((nd.get("bia") or {}).get("hinh_moc", ""))
+    if cm is not None and cm in valid and video.exists() and grab(video, cm, img_dir / "bia-anh.jpg"):
+        cover_shot = img_dir / "bia-anh.jpg"
+    cover_png = img_dir / "bia.png"
+    if has_browser and ve_minh_hoa.render_cover(nd, info, planned, len(questions), cover_shot, cover_png):
+        full_page_image(doc, cover_png)
+    else:
+        for _ in range(6):
+            para(doc)
+        para(doc, "GHI CHÚ KHOÁ HỌC", size=10, bold=True, color=ORANGE, font=SANS)
+        para(doc, title, size=30, bold=True, color=INK, font=SANS, after=10)
+        if nd.get("phu_de"):
+            para(doc, nd["phu_de"], size=13, italic=True, color=MUTED)
+        border(para(doc), size="18")
+        para(doc, f"Nguồn: {info.get('tieu_de', '')}" + (f" — {info['kenh']}" if info.get("kenh") else ""), size=10, color=MUTED, font=SANS)
+        doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
-    # Đầu trang, chân trang
+    # Đầu trang, chân trang (trang bìa không có)
     hp = sec.header.paragraphs[0]
-    run(hp, title, size=8.5, color=MUTED)
+    run(hp, "GHI CHÚ KHOÁ HỌC  /  ", size=7.5, bold=True, color=MUTED, font=SANS, spacing=20)
+    short = title if len(title) <= 55 else title[:52].rsplit(" ", 1)[0].rstrip(":,;–—- ") + "…"
+    run(hp, short.upper(), size=7.5, bold=True, color=MUTED, font=SANS, spacing=20)
+    border(hp, color="E8692C", size="6", space="4")
     fp = sec.footer.paragraphs[0]
-    fp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    run(fp, "Trang ", size=8.5, color=MUTED)
+    fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run(fp, "TÀI LIỆU HỌC TẬP  ·  ", size=7.5, bold=True, color=MUTED, font=SANS, spacing=20)
     field(fp, "PAGE")
 
-    chapters = nd.get("chuong", [])
+    # Mục lục
     heading(doc, "Mục lục", 1)
     for i, ch in enumerate(chapters, 1):
-        p = doc.add_paragraph()
-        run(p, f"Chương {i} · {ch.get('tieu_de', '')}", size=11, bold=True, color=NAVY)
+        p = para(doc, after=2)
+        run(p, f"{i:02d}   ", size=11, bold=True, color=ORANGE, font=SANS)
+        run(p, ch.get("tieu_de", ""), size=11, bold=True, color=INK, font=SANS)
         if ch.get("moc"):
-            run(p, f"   {ch['moc']}", size=9.5, color=MUTED)
+            run(p, f"   {ch['moc']}", size=9, color=MUTED, font=SANS)
+        q = p
         for j, m in enumerate(ch.get("muc", []), 1):
-            q = doc.add_paragraph()
-            q.paragraph_format.left_indent = Inches(0.3)
-            q.paragraph_format.space_after = Pt(1)
-            run(q, f"{i}.{j}  {m.get('tieu_de', '')}", size=10)
-    for name in ("Thuật ngữ", "Điểm cần ghi nhớ", "Câu hỏi ôn tập"):
-        p = doc.add_paragraph()
-        run(p, name, size=11, bold=True, color=NAVY)
-    doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+            q = para(doc, after=0)
+            q.paragraph_format.left_indent = Inches(0.42)
+            run(q, f"{i}.{j}  {m.get('tieu_de', '')}", size=9.5, color=MUTED, font=SANS)
+        q.paragraph_format.space_after = Pt(6)
+    for name in ("Thuật ngữ cần nhớ", "Điểm cần ghi nhớ", "Câu hỏi tự ôn"):
+        p = para(doc, after=2)
+        run(p, name, size=11, bold=True, color=INK, font=SANS)
 
-    heading(doc, "Tổng quan", 1)
-    for para in re.split(r"\n\s*\n", nd.get("tong_quan", "").strip()):
-        if para.strip():
-            body(doc, para.strip())
+    # Tổng quan
+    heading(doc, "Tổng quan", 1, page_break=True)
+    for block in re.split(r"\n\s*\n", nd.get("tong_quan", "").strip()):
+        if block.strip():
+            p = para(doc, block.strip(), after=0)
+            shade(p)
+            p.paragraph_format.left_indent = p.paragraph_format.right_indent = Inches(0.05)
+            border(p, side="left", color="E8692C", size="18", space="8")
+    para(doc, after=4)
     if nd.get("y_chinh"):
         heading(doc, "Ý chính", 2)
-        bullets(doc, nd["y_chinh"])
+        for y in nd["y_chinh"]:
+            p = doc.add_paragraph(style="List Bullet")
+            run(p, y)
+            p.paragraph_format.space_after = Pt(4)
 
-    words = 0
-    images = 0
+    # Nội dung
+    words = images = diagrams = 0
     last_moc = 0
     sections_without_moc = 0
-    (out / "hinh").mkdir(exist_ok=True)
-    for old in (out / "hinh").glob("*.jpg"):
-        old.unlink()
-    video = out / "video.mp4"
+    chapters_without_visual = []
     for i, ch in enumerate(chapters, 1):
-        p = heading(doc, f"Chương {i} · {ch.get('tieu_de', '')}", 1)
-        p.paragraph_format.page_break_before = True
+        heading(doc, f"{i:02d}  {ch.get('tieu_de', '')}", 1, moc=ch.get("moc"), page_break=True)
         if ch.get("mo_dau"):
-            body(doc, ch["mo_dau"], italic=True, color=MUTED)
+            para(doc, ch["mo_dau"], size=11.5, italic=True, color=MUTED, after=10)
+        visuals_here = 0
         for j, m in enumerate(ch.get("muc", []), 1):
-            heading(doc, f"{i}.{j}  {m.get('tieu_de', '')}", 2)
             s = secs(m.get("moc", ""))
+            heading(doc, f"{i}.{j}  {m.get('tieu_de', '')}", 2, moc=stamp(s) if s is not None else None)
             if s is None:
                 sections_without_moc += 1
                 warnings.append(f"Mục {i}.{j} thiếu mốc thời gian hợp lệ")
             else:
                 last_moc = max(last_moc, s)
-                p = doc.add_paragraph()
-                run(p, "▶ Xem trong video: ", size=9, color=MUTED)
                 url = video_link(base, s)
                 if url:
-                    link(p, url, stamp(s))
-                else:
-                    run(p, stamp(s), size=9, color=MUTED)
+                    p = para(doc, after=4)
+                    run(p, "▶  ", size=8, color=ORANGE, font=SANS)
+                    link(p, url, f"Xem đoạn này trong video ({stamp(s)})")
+            # Hình chụp màn hình: chèn sau đoạn văn có mốc gần nhất
             pending = []
             for h in m.get("hinh", []):
                 hs = secs(h.get("moc", ""))
@@ -279,59 +374,83 @@ def main() -> None:
                     continue
                 pending.append((hs, h))
             pending.sort(key=lambda x: x[0])
+            # Sơ đồ tự vẽ: chèn sau đoạn thứ "sau_doan" (mặc định sau đoạn đầu)
+            drawn = {}
+            for k, mh in enumerate(m.get("minh_hoa", [])):
+                drawn.setdefault(int(mh.get("sau_doan", 1)), []).append(mh)
             doans = m.get("doan", [])
-            for k, d in enumerate(doans):
+            for k, d in enumerate(doans, 1):
                 text = d.get("noi_dung", "") if isinstance(d, dict) else str(d)
-                body(doc, text)
+                para(doc, text)
                 words += len(text.split())
                 if isinstance(d, dict) and secs(d.get("moc", "")) is not None:
                     last_moc = max(last_moc, secs(d["moc"]))
-                nxt = secs(doans[k + 1].get("moc", "")) if k + 1 < len(doans) and isinstance(doans[k + 1], dict) else None
+                nxt = secs(doans[k].get("moc", "")) if k < len(doans) and isinstance(doans[k], dict) else None
                 while pending and (nxt is None or pending[0][0] < nxt):
                     hs, h = pending.pop(0)
-                    images += 1
-                    img = out / "hinh" / f"hinh-{images:02d}-{stamp(hs).replace(':', '')}.jpg"
+                    img = img_dir / f"hinh-{images + diagrams + 1:02d}-{stamp(hs).replace(':', '')}.jpg"
                     if not grab(video, hs, img):
                         warnings.append(f"Không chụp được hình tại {stamp(hs)}")
-                        images -= 1
                         continue
-                    doc.add_picture(str(img), width=Inches(6.2))
-                    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    cap = doc.add_paragraph()
-                    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    run(cap, f"Hình {images}. {h.get('tieu_de', '')}", size=9, bold=True, color=MUTED)
-                    if h.get("chu_thich"):
-                        run(cap, f" — {h['chu_thich']}", size=9, color=MUTED)
-                    run(cap, f" ({stamp(hs)})", size=9, color=MUTED)
+                    images += 1
+                    visuals_here += 1
+                    picture(doc, img)
+                    caption(doc, f"HÌNH {images + diagrams:02d}", stamp(hs), h.get("tieu_de", ""), h.get("chu_thich", ""))
+                for mh in drawn.pop(k, []) + (drawn.pop(len(doans), []) if k == len(doans) else []):
+                    png = img_dir / f"so-do-{images + diagrams + 1:02d}.png"
+                    if has_browser and ve_minh_hoa.render_diagram(mh, png):
+                        diagrams += 1
+                        visuals_here += 1
+                        picture(doc, png, 6.2)
+                        caption(doc, f"SƠ ĐỒ {images + diagrams:02d}", None, mh.get("tieu_de", ""), mh.get("chu_thich", ""))
+                    else:
+                        warnings.append(f"Không vẽ được sơ đồ '{mh.get('tieu_de')}' (loại '{mh.get('loai')}') ở mục {i}.{j}")
+            for left in drawn.values():
+                for mh in left:
+                    warnings.append(f"Sơ đồ '{mh.get('tieu_de')}' ở mục {i}.{j}: sau_doan vượt quá số đoạn, bị bỏ")
         if ch.get("tom_tat"):
-            p = doc.add_paragraph()
-            run(p, "TÓM TẮT CHƯƠNG", size=9.5, bold=True, color=ACCENT)
+            p = para(doc, after=0)
+            run(p, "TÓM TẮT CHƯƠNG", size=8.5, bold=True, color=ORANGE, font=SANS, spacing=30)
             shade(p)
+            p.paragraph_format.space_before = Pt(10)
             for t in ch["tom_tat"]:
-                q = doc.add_paragraph()
-                run(q, "•  " + t, size=10.5)
+                q = para(doc, after=0, size=10.5)
+                run(q, "—  ", size=10.5, bold=True, color=ORANGE, font=SANS)
+                run(q, t, size=10.5)
                 shade(q)
-                q.paragraph_format.space_after = Pt(0)
+            para(doc, after=6)
+        if not visuals_here:
+            chapters_without_visual.append(i)
 
-    terms = nd.get("thuat_ngu", [])
+    # Phụ lục
     if terms:
-        heading(doc, "Thuật ngữ", 1).paragraph_format.page_break_before = True
-        table = doc.add_table(rows=1, cols=2)
-        table.style = "Light Grid Accent 1"
-        for cell, txt in zip(table.rows[0].cells, ("Thuật ngữ", "Giải thích")):
-            cell.paragraphs[0].text = ""
-            run(cell.paragraphs[0], txt, size=10, bold=True)
+        heading(doc, "Thuật ngữ cần nhớ", 1, page_break=True)
         for t in terms:
-            row = table.add_row().cells
-            run(row[0].paragraphs[0], t.get("tu", ""), size=10, bold=True)
-            run(row[1].paragraphs[0], t.get("giai_thich", ""), size=10)
+            p = doc.add_paragraph(style="List Bullet")
+            run(p, t.get("tu", ""), bold=True, color=INK)
+            run(p, f" — {t.get('giai_thich', '')}")
+            p.paragraph_format.space_after = Pt(4)
     if nd.get("ghi_nho"):
         heading(doc, "Điểm cần ghi nhớ", 1)
-        bullets(doc, nd["ghi_nho"])
-    questions = nd.get("cau_hoi", [])
+        for g in nd["ghi_nho"]:
+            p = doc.add_paragraph(style="List Bullet")
+            run(p, g)
+            p.paragraph_format.space_after = Pt(4)
     if questions:
-        heading(doc, "Câu hỏi ôn tập", 1)
-        bullets(doc, questions, style="List Number")
+        heading(doc, "Câu hỏi tự ôn", 1)
+        for q_ in questions:
+            p = doc.add_paragraph(style="List Number")
+            run(p, q_)
+            p.paragraph_format.space_after = Pt(4)
+    src = para(doc, after=0, size=9)
+    src.paragraph_format.space_before = Pt(16)
+    run(src, "Nguồn: ", size=9, bold=True, color=INK, font=SANS)
+    run(src, f"{info.get('tieu_de', '')}" + (f" — {info['kenh']}" if info.get("kenh") else ""), size=9, color=MUTED, font=SANS)
+    if base:
+        run(src, "  ", size=9)
+        link(src, base, base, size=8.5)
+    if a.nguoi_soan:
+        para(doc, f"Biên soạn: {a.nguoi_soan} · {dt.date.today():%d/%m/%Y}", size=9, color=MUTED, font=SANS)
 
     name = slug(title)
     docx_path = out / f"{name}.docx"
@@ -340,22 +459,25 @@ def main() -> None:
 
     minutes = max(duration / 60, 1)
     sections = sum(len(c.get("muc", [])) for c in chapters)
+    visuals = images + diagrams
     checks = [
         ("Đủ nội dung (≥ 70 chữ / phút video)", words / minutes >= 70, f"{words} chữ, {words / minutes:.0f} chữ/phút"),
         ("Phủ hết video (mục cuối ≥ 85% thời lượng)", last_moc >= 0.85 * duration - 60, f"mốc cuối {stamp(last_moc)} / {stamp(duration)}"),
         ("Mỗi mục có mốc thời gian", sections_without_moc == 0, f"{sections - sections_without_moc}/{sections} mục"),
-        ("Có hình minh hoạ (≥ 1 hình / 5 phút)", images >= max(1, int(minutes // 5)), f"{images} hình"),
+        ("Có hình minh hoạ (≥ 1 hình / 5 phút)", visuals >= max(1, int(minutes // 5)), f"{images} ảnh chụp + {diagrams} sơ đồ"),
+        ("Chương nào cũng có hình minh hoạ", not chapters_without_visual,
+         "đủ" if not chapters_without_visual else "thiếu ở chương " + ", ".join(map(str, chapters_without_visual))),
         ("Có thuật ngữ (≥ 5)", len(terms) >= 5, f"{len(terms)} thuật ngữ"),
         ("Có câu hỏi ôn tập (≥ 5)", len(questions) >= 5, f"{len(questions)} câu"),
     ]
-    report = ["BẢNG TỰ CHẤM", *(f"[{'ĐẠT' if ok else 'CHƯA ĐẠT'}] {name_}: {detail}" for name_, ok, detail in checks)]
+    report = ["BẢNG TỰ CHẤM", *(f"[{'ĐẠT' if ok else 'CHƯA ĐẠT'}] {n}: {d}" for n, ok, d in checks)]
     if warnings:
         report += ["", "Cảnh báo:", *("- " + w for w in warnings)]
     (out / "tu_cham.txt").write_text("\n".join(report), encoding="utf-8")
     print("\n".join(report))
     print(f"\nWORD: {docx_path}")
     print(f"PDF: {pdf_path or 'không tạo được (máy không có Pages/LibreOffice) — mở file Word rồi Xuất PDF'}")
-    print(f"HÌNH: {out / 'hinh'} ({images} hình)")
+    print(f"HÌNH: {img_dir} ({images} ảnh chụp, {diagrams} sơ đồ)")
     print(f"{len(chapters)} chương, {sections} mục")
     if not all(ok for _, ok, _ in checks):
         sys.exit(2)

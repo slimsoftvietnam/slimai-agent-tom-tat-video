@@ -12,19 +12,19 @@ Từ một link video, có tài liệu học tập đầy đủ trong **dưới 
 
 | # | Kết quả | Đạt khi |
 |---|---|---|
-| 1 | File Word `.docx` | Mở được; có bìa, mục lục, tổng quan, các chương mục, thuật ngữ, câu hỏi ôn tập |
+| 1 | File Word `.docx` | Phong cách "Ghi chú khoá học"; có bìa thiết kế, mục lục, tổng quan, các chương mục, thuật ngữ, câu hỏi ôn tập |
 | 2 | File PDF | Cùng nội dung (máy có Pages hoặc LibreOffice); không có thì xuất từ Word |
 | 3 | Nội dung đầy đủ | ≥ 70 chữ cho mỗi phút video; đọc một chương hiểu được mà không cần xem video |
 | 4 | Mốc thời gian | Mục nào cũng có; bấm mở đúng đoạn trên YouTube; phủ đến cuối video |
-| 5 | Hình minh hoạ | Khoảng 1 hình mỗi 3–5 phút, đúng slide/demo, có chú thích; lưu riêng trong `hinh/` |
-| 6 | Bảng tự chấm | `tu_cham.txt`, mọi dòng ĐẠT |
+| 5 | Hình minh hoạ | Chương nào cũng có hình; khoảng 1 hình mỗi 3–5 phút. Ảnh chụp chỉ khi màn hình có nội dung (slide, giao diện, demo); không thì tự vẽ sơ đồ/infographic. Lưu trong `hinh/` |
+| 6 | Bảng tự chấm | `tu_cham.txt`, cả 7 dòng ĐẠT |
 | 7 | File làm việc | `loi_thoai.txt` (lời thoại có mốc), `noi_dung.json` (nội dung để sửa và dựng lại), `anh_nho/` (bảng ảnh nhỏ) |
 
 ## PEAS
 
 | Chữ | Dịch | Nhớ nhanh | Agent này |
 |---|---|---|---|
-| **P** · Performance measure | Thước đo hiệu quả | KPI | 6 dòng tự chấm đều ĐẠT; 0 mốc thời gian sai; 0 nội dung bịa |
+| **P** · Performance measure | Thước đo hiệu quả | KPI | 7 dòng tự chấm đều ĐẠT; 0 hình chỉ có mặt người nói; 0 mốc thời gian sai; 0 nội dung bịa |
 | **E** · Environment | Môi trường | Bàn làm việc | YouTube hoặc file video trên máy, thư mục làm việc, phụ đề có thể sai chính tả |
 | **A** · Actuators | Cơ cấu chấp hành | Đôi tay | Tải video và phụ đề, chụp ảnh, viết nội dung, dựng Word/PDF. **Không** xoá file người dùng, không đăng hay gửi tài liệu đi đâu |
 | **S** · Sensors | Cảm biến | Đôi mắt | Lời thoại có mốc giờ, mục lục của tác giả, bảng ảnh nhỏ để "nhìn" slide |
@@ -40,5 +40,5 @@ Từ một link video, có tài liệu học tập đầy đủ trong **dưới 
 
 1. Mở PDF/Word, đọc lướt mục lục và một chương bất kỳ.
 2. Bấm thử 2 mốc thời gian, xem có khớp video.
-3. Xem các hình có đúng slide không.
+3. Xem các hình: đúng slide/demo, sơ đồ đúng ý; không có hình chỉ có mặt người nói.
 4. Dòng nào chưa đạt: nói lỗi trong một câu → "Sửa noi_dung.json và dựng lại".

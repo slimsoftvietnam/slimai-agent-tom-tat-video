@@ -19,7 +19,7 @@ Dùng skill tom-tat-video để tóm tắt video này thành file Word và PDF: 
 | [`tom-tat-video/SKILL.md`](tom-tat-video/SKILL.md) | Skill cho Claude Code / Codex: các bước agent làm, mẫu nội dung, cách viết cho đầy đủ |
 | [`tom-tat-video/INSTALL.md`](tom-tat-video/INSTALL.md) | Cài đặt: nơi đặt skill, ffmpeg, yt-dlp, môi trường Python |
 | [`tom-tat-video/THE_NHIEM_VU.md`](tom-tat-video/THE_NHIEM_VU.md) | Thẻ nhiệm vụ chi tiết cho agent: tiêu chí đạt, không được làm gì, nghiệm thu |
-| `tom-tat-video/scripts/` | `lay_video.py` (video + lời thoại có mốc), `anh_nho.py` (bảng ảnh nhỏ để chọn hình), `dung_tai_lieu.py` (dựng Word/PDF + tự chấm) |
+| `tom-tat-video/scripts/` | `lay_video.py` (video + lời thoại có mốc), `anh_nho.py` (bảng ảnh nhỏ để chọn hình), `ve_minh_hoa.py` (bìa + sơ đồ/infographic), `dung_tai_lieu.py` (dựng Word/PDF + tự chấm) |
 
 ## Skill tạo ra những gì
 
